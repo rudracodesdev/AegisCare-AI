@@ -1,0 +1,88 @@
+{
+  "CARE26": {
+    "passcode": "CARE26",
+    "patientProfile": {
+      "name": "Shri Rameshwar Nath (Age 72)",
+      "bloodGroup": "O+",
+      "passcode": "CARE26",
+      "emergencyContact": "+919876543210",
+      "emergencyDisplay": "+91 98765 43210",
+      "careEmail": "family.circle@gmail.com",
+      "vitals": {
+        "bp": "124/82 mmHg",
+        "heartRate": "74 BPM",
+        "glucose": "112 mg/dL"
+      }
+    },
+    "medications": [
+      {
+        "id": "med-1",
+        "name": "Amlodipine",
+        "dosage": "5 mg",
+        "time": "08:00 AM",
+        "period": "Morning",
+        "instructions": "Take 1 tablet after breakfast with water",
+        "status": "Taken",
+        "pillsLeft": 18
+      },
+      {
+        "id": "med-2",
+        "name": "Metformin XR",
+        "dosage": "500 mg",
+        "time": "01:30 PM",
+        "period": "Afternoon",
+        "instructions": "Take immediately after lunch",
+        "status": "Pending",
+        "pillsLeft": 4
+      },
+      {
+        "id": "med-3",
+        "name": "Atorvastatin",
+        "dosage": "10 mg",
+        "time": "09:00 PM",
+        "period": "Night",
+        "instructions": "Take before bedtime",
+        "status": "Missed",
+        "pillsLeft": 12
+      }
+    ],
+    "appointments": [
+      {
+        "id": "apt-1",
+        "doctor": "Dr. Ananya Mohanty",
+        "specialty": "Cardiologist",
+        "date": "2026-11-18",
+        "time": "10:30 AM",
+        "location": "Apollo Hospital, Bhubaneswar",
+        "notes": "Bring monthly BP log and ECG report"
+      },
+      {
+        "id": "apt-2",
+        "doctor": "Dr. S. K. Dash",
+        "specialty": "Endocrinology & Diabetes",
+        "date": "2026-11-24",
+        "time": "04:00 PM",
+        "location": "KIMS Medical Center",
+        "notes": "Fasting blood sugar check required"
+      }
+    ]
+  },
+  "CARE643": {
+    "passcode": "CARE643",
+    "patientProfile": {
+      "name": "Ram Rajarshi Hazra (Age 68)",
+      "bloodGroup": "B+",
+      "passcode": "CARE643",
+      "emergencyContact": "+919876543210",
+      "emergencyDisplay": "+91 98765 43210",
+      "careEmail": "jeevanpattnaik@gmail.com",
+      "vitals": {
+        "bp": "120/80 mmHg",
+        "heartRate": "72 BPM",
+        "glucose": "105 mg/dL"
+      }
+    },
+    "medications": [],
+    "appointments": []
+  }
+}
