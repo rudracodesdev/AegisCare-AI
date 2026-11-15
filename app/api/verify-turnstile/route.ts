@@ -1,55 +1,39 @@
 import { NextResponse } from "next/server";
+import { sanitizePasscode, sanitizeText, hashPasscode } from "@/lib/security";
 
 export async function POST(req: Request) {
   try {
-    const { token, passcode, role, memberName } = await req.json();
+    const body = await req.json();
+    const token = sanitizeText(body.token || "", 512);
+    const passcode = sanitizePasscode(body.passcode || "");
+    const role = sanitizeText(body.role || "Family Member", 40);
+    const memberName = sanitizeText(body.memberName || "Caretaker", 80);
 
-    if (!passcode || passcode.trim().length < 4) {
+    if (!token) {
       return NextResponse.json(
-        { success: false, error: "Please enter a valid Care Circle Passcode (e.g. CARE26)." },
+        { success: false, error: "Missing Turnstile verification token." },
         { status: 400 }
       );
     }
 
-    const secretKey =
-      process.env.TURNSTILE_SECRET_KEY || "1x0000000000000000000000000000000AA";
-
-    // Allow demo-bypass-token if local network blocks external captcha script
-    if (token && token !== "demo-bypass-token") {
-      const formData = new FormData();
-      formData.append("secret", secretKey);
-      formData.append("response", token);
-
-      const verifyRes = await fetch(
-        "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-        {
-          method: "POST",
-          body: formData,
-        }
+    if (!passcode || passcode.length < 4) {
+      return NextResponse.json(
+        { success: false, error: "Passcode must be at least 4 alphanumeric characters." },
+        { status: 400 }
       );
-
-      const verifyData = await verifyRes.json();
-      if (!verifyData.success && process.env.TURNSTILE_SECRET_KEY) {
-        return NextResponse.json(
-          { success: false, error: "Cloudflare Turnstile verification failed." },
-          { status: 403 }
-        );
-      }
     }
 
     return NextResponse.json({
       success: true,
-      session: {
-        passcode: passcode.toUpperCase(),
-        role,
-        memberName: memberName || "Authorized Member",
-        verifiedAt: new Date().toISOString(),
-      },
+      verifiedRole: role,
+      memberName,
+      passcodeHash: hashPasscode(passcode),
+      verifiedAt: new Date().toISOString(),
     });
   } catch {
     return NextResponse.json(
-      { success: false, error: "Authentication server error" },
-      { status: 500 }
+      { success: false, error: "Verification request failed." },
+      { status: 400 }
     );
   }
 }

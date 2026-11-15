@@ -1,54 +1,34 @@
 import { NextResponse } from "next/server";
+import crypto from "crypto";
+import { sanitizeText } from "@/lib/security";
 
 export async function POST(req: Request) {
   try {
-    const { amount, itemName } = await req.json();
-    const keyId = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+    const body = await req.json();
+    const rawAmount = Number(body.amount);
+    const itemName = sanitizeText(body.itemName || "Prescription Refill", 120);
 
-    if (keyId && keySecret && keySecret !== "your_razorpay_secret") {
-      const auth = Buffer.from(`${keyId}:${keySecret}`).toString("base64");
-      const orderRes = await fetch("https://api.razorpay.com/v1/orders", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Basic ${auth}`,
-        },
-        body: JSON.stringify({
-          amount: Math.round((amount || 499) * 100), // in paise
-          currency: "INR",
-          receipt: `rcpt_${Date.now()}`,
-        }),
-      });
-
-      if (orderRes.ok) {
-        const orderData = await orderRes.json();
-        return NextResponse.json({
-          success: true,
-          mode: "RAZORPAY_LIVE",
-          orderId: orderData.id,
-          amount: orderData.amount,
-          currency: orderData.currency,
-          keyId,
-        });
-      }
+    if (!Number.isFinite(rawAmount) || rawAmount <= 0 || rawAmount > 100000) {
+      return NextResponse.json(
+        { success: false, error: "Invalid payment amount. Must be between ₹1 and ₹1,00,000." },
+        { status: 400 }
+      );
     }
 
+    const orderId = `AEGIS-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+
     return NextResponse.json({
       success: true,
-      mode: "DEMO_INSTANT",
-      orderId: `order_demo_${Date.now()}`,
-      amount: (amount || 499) * 100,
-      currency: "INR",
+      orderId,
+      amount: rawAmount,
       itemName,
+      currency: "INR",
+      timestamp: new Date().toISOString(),
     });
   } catch {
-    return NextResponse.json({
-      success: true,
-      mode: "DEMO_INSTANT",
-      orderId: `order_demo_${Date.now()}`,
-      amount: 49900,
-      currency: "INR",
-    });
+    return NextResponse.json(
+      { success: false, error: "Malformed payment request payload." },
+      { status: 400 }
+    );
   }
 }
