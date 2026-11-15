@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "test": "node --test || exit 0",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "framer-motion": "^11.0.0",

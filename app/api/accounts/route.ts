@@ -1,12 +1,26 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
+import os from "os";
+import { sanitizePasscode, sanitizeText, hashPasscode } from "@/lib/security";
+import type { PatientProfile, Medication, Appointment } from "@/lib/care-engine";
 
-const DB_PATH = path.join(process.cwd(), "care-accounts-db.json");
+interface AccountRecord {
+  passcode: string;
+  passcodeHash: string;
+  patientProfile: PatientProfile;
+  medications: Medication[];
+  appointments: Appointment[];
+  updatedAt: string;
+}
 
-const DEFAULT_DB: Record<string, unknown> = {
+const DB_PATH = path.join(os.tmpdir(), "care-accounts-db.json");
+
+const INITIAL_ACCOUNTS: Record<string, AccountRecord> = {
   CARE26: {
     passcode: "CARE26",
+    passcodeHash: hashPasscode("CARE26"),
+    updatedAt: new Date().toISOString(),
     patientProfile: {
       name: "Shri Rameshwar Nath (Age 72)",
       bloodGroup: "O+",
@@ -71,34 +85,46 @@ const DEFAULT_DB: Record<string, unknown> = {
   },
 };
 
-async function readDb() {
+const globalStore = globalThis as unknown as {
+  __aegisAccountsCache?: Record<string, AccountRecord>;
+};
+
+async function getDb(): Promise<Record<string, AccountRecord>> {
+  if (globalStore.__aegisAccountsCache) {
+    return globalStore.__aegisAccountsCache;
+  }
   try {
     const raw = await fs.readFile(DB_PATH, "utf-8");
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw) as Record<string, AccountRecord>;
+    globalStore.__aegisAccountsCache = { ...INITIAL_ACCOUNTS, ...parsed };
   } catch {
-    await fs.writeFile(DB_PATH, JSON.stringify(DEFAULT_DB, null, 2), "utf-8");
-    return DEFAULT_DB;
+    globalStore.__aegisAccountsCache = { ...INITIAL_ACCOUNTS };
+  }
+  return globalStore.__aegisAccountsCache;
+}
+
+async function persistDb(db: Record<string, AccountRecord>): Promise<void> {
+  globalStore.__aegisAccountsCache = db;
+  try {
+    await fs.writeFile(DB_PATH, JSON.stringify(db, null, 2), "utf-8");
+  } catch {
+    // Serverless read-only fallback handled via in-memory cache
   }
 }
 
-async function writeDb(data: Record<string, unknown>) {
-  await fs.writeFile(DB_PATH, JSON.stringify(data, null, 2), "utf-8");
-}
-
-// GET ACCOUNT BY PASSCODE
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const code = (searchParams.get("passcode") || "").toUpperCase().trim();
-  const db = await readDb();
+  const code = sanitizePasscode(searchParams.get("passcode") || "");
+  const db = await getDb();
 
   if (!code) {
     return NextResponse.json({
       success: true,
-      accounts: Object.keys(db),
+      totalProfiles: Object.keys(db).length,
     });
   }
 
-  const account = db[code];
+  const account = Object.prototype.hasOwnProperty.call(db, code) ? db[code] : undefined;
   if (!account) {
     return NextResponse.json(
       {
@@ -112,71 +138,79 @@ export async function GET(req: Request) {
   return NextResponse.json({ success: true, account });
 }
 
-// CREATE NEW ACCOUNT OR UPDATE EXISTING ACCOUNT DATA
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { action, passcode, patientProfile, medications, appointments } = body;
-    const code = (passcode || "").toUpperCase().trim();
+    const code = sanitizePasscode(body.passcode);
 
     if (!code || code.length < 4) {
       return NextResponse.json(
-        { success: false, error: "Passcode must be at least 4 characters." },
+        { success: false, error: "Passcode must be 4-24 alphanumeric characters." },
         { status: 400 }
       );
     }
 
-    const db = await readDb();
+    const db = await getDb();
 
-    if (action === "REGISTER") {
-      if (db[code]) {
+    if (body.action === "REGISTER") {
+      if (Object.prototype.hasOwnProperty.call(db, code)) {
         return NextResponse.json(
-          {
-            success: false,
-            error: `Passcode "${code}" is already taken. Please choose another passcode.`,
-          },
-          { status: 400 }
+          { success: false, error: `Passcode "${code}" is already registered.` },
+          { status: 409 }
         );
       }
 
-      const newAccount = {
+      const rawProfile = body.patientProfile || {};
+      const emergencyRaw = sanitizeText(rawProfile.emergencyContact || "+91 98765 43210", 25);
+
+      const newAccount: AccountRecord = {
         passcode: code,
+        passcodeHash: hashPasscode(code),
+        updatedAt: new Date().toISOString(),
         patientProfile: {
-          name: patientProfile.name,
-          bloodGroup: patientProfile.bloodGroup || "O+",
+          name: sanitizeText(rawProfile.name || "Senior Patient", 80),
+          bloodGroup: sanitizeText(rawProfile.bloodGroup || "O+", 10),
           passcode: code,
-          emergencyContact: (patientProfile.emergencyContact || "+919876543210").replace(/\s+/g, ""),
-          emergencyDisplay: patientProfile.emergencyContact || "+91 98765 43210",
-          careEmail: patientProfile.careEmail || "family@aegiscare.ai",
+          emergencyContact: emergencyRaw.replace(/\s+/g, ""),
+          emergencyDisplay: emergencyRaw,
+          careEmail: sanitizeText(rawProfile.careEmail || "family@aegiscare.ai", 100),
           vitals: {
-            bp: patientProfile.bp || "120/80 mmHg",
-            heartRate: patientProfile.heartRate || "72 BPM",
-            glucose: patientProfile.glucose || "105 mg/dL",
+            bp: sanitizeText(rawProfile.bp || "120/80 mmHg", 25),
+            heartRate: sanitizeText(rawProfile.heartRate || "72 BPM", 25),
+            glucose: sanitizeText(rawProfile.glucose || "105 mg/dL", 25),
           },
         },
-        medications: medications || [],
-        appointments: appointments || [],
+        medications: Array.isArray(body.medications) ? body.medications.slice(0, 50) : [],
+        appointments: Array.isArray(body.appointments) ? body.appointments.slice(0, 50) : [],
       };
 
       db[code] = newAccount;
-      await writeDb(db);
-      return NextResponse.json({ success: true, account: newAccount });
+      await persistDb(db);
+      return NextResponse.json({ success: true, account: newAccount }, { status: 201 });
     }
 
-    // SYNC / UPDATE EXISTING ACCOUNT
-    if (db[code]) {
+    if (Object.prototype.hasOwnProperty.call(db, code)) {
+      const existing = db[code];
       db[code] = {
-        ...db[code],
-        patientProfile: patientProfile || db[code].patientProfile,
-        medications: medications ?? db[code].medications,
-        appointments: appointments ?? db[code].appointments,
+        ...existing,
+        updatedAt: new Date().toISOString(),
+        patientProfile: body.patientProfile ?? existing.patientProfile,
+        medications: Array.isArray(body.medications)
+          ? body.medications.slice(0, 50)
+          : existing.medications,
+        appointments: Array.isArray(body.appointments)
+          ? body.appointments.slice(0, 50)
+          : existing.appointments,
       };
-      await writeDb(db);
+      await persistDb(db);
       return NextResponse.json({ success: true, account: db[code] });
     }
 
     return NextResponse.json({ success: false, error: "Account not found" }, { status: 404 });
-  } catch (err) {
-    return NextResponse.json({ success: false, error: String(err) }, { status: 500 });
+  } catch {
+    return NextResponse.json(
+      { success: false, error: "Invalid request payload" },
+      { status: 400 }
+    );
   }
 }
