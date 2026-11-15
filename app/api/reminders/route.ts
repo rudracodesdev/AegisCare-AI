@@ -2,9 +2,21 @@ import { NextResponse } from "next/server";
 import nodemailer from "nodemailer";
 
 export async function POST(req: Request) {
+  let recipientEmail = "family.circle@aegiscare.ai";
+  let alertType = "UPCOMING_DOSE";
+  let patientName = "Patient";
+  let itemTitle = "Medication Reminder";
+  let itemTime = "";
+  let notes = "";
+
   try {
-    const { recipientEmail, alertType, patientName, itemTitle, itemTime, notes } =
-      await req.json();
+    const body = await req.json();
+    recipientEmail = body.recipientEmail || recipientEmail;
+    alertType = body.alertType || alertType;
+    patientName = body.patientName || patientName;
+    itemTitle = body.itemTitle || itemTitle;
+    itemTime = body.itemTime || itemTime;
+    notes = body.notes || notes;
 
     const subjectMap: Record<string, string> = {
       MISSED_MED: `🚨 URGENT: Missed Medication Alert for ${patientName}`,
@@ -29,7 +41,6 @@ export async function POST(req: Request) {
       </div>
     `;
 
-    // Automatically generates a disposable cloud SMTP account—no Gmail login needed!
     const testAccount = await nodemailer.createTestAccount();
     const transporter = nodemailer.createTransport({
       host: "smtp.ethereal.email",
@@ -43,12 +54,11 @@ export async function POST(req: Request) {
 
     const info = await transporter.sendMail({
       from: '"AegisCare AI Watchdog" <alerts@aegiscare.ai>',
-      to: recipientEmail || "family.circle@aegiscare.ai",
+      to: recipientEmail,
       subject,
       html: htmlBody,
     });
 
-    // Real clickable URL where judges can view the delivered email in a browser inbox
     const liveInboxUrl = nodemailer.getTestMessageUrl(info);
 
     return NextResponse.json({
@@ -56,7 +66,7 @@ export async function POST(req: Request) {
       liveSmtp: true,
       timestamp: new Date().toLocaleTimeString(),
       preview: {
-        to: recipientEmail || "family.circle@aegiscare.ai",
+        to: recipientEmail,
         subject: liveInboxUrl ? `${subject} (Live SMTP Sent ✓)` : subject,
         itemTitle: liveInboxUrl
           ? `${itemTitle} — View Inbox: ${liveInboxUrl}`
@@ -71,7 +81,7 @@ export async function POST(req: Request) {
       liveSmtp: false,
       timestamp: new Date().toLocaleTimeString(),
       preview: {
-        to: recipientEmail || "family.circle@aegiscare.ai",
+        to: recipientEmail,
         subject: `CareCircle Alert: ${itemTitle}`,
         itemTitle,
         itemTime,
