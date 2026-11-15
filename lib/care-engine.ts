@@ -44,9 +44,6 @@ export interface AdherenceSummary {
   adherenceRate: number;
 }
 
-/**
- * Computes real-time medication adherence and inventory metrics in a single O(N) pass.
- */
 export function calculateAdherenceSummary(medications: Medication[]): AdherenceSummary {
   let takenMeds = 0;
   let missedMeds = 0;
@@ -57,26 +54,14 @@ export function calculateAdherenceSummary(medications: Medication[]): AdherenceS
     if (med.status === "Taken") takenMeds++;
     else if (med.status === "Missed") missedMeds++;
     else pendingMeds++;
-
     if (med.pillsLeft <= 5) lowStockCount++;
   }
 
   const totalMeds = medications.length;
   const adherenceRate = totalMeds > 0 ? Math.round((takenMeds / totalMeds) * 100) : 100;
-
-  return {
-    totalMeds,
-    takenMeds,
-    missedMeds,
-    pendingMeds,
-    lowStockCount,
-    adherenceRate,
-  };
+  return { totalMeds, takenMeds, missedMeds, pendingMeds, lowStockCount, adherenceRate };
 }
 
-/**
- * Evaluates patient vitals for clinical warning thresholds in elderly patients.
- */
 export function evaluateVitalsSafety(vitals: PatientVitals): {
   status: "NORMAL" | "ELEVATED" | "CRITICAL";
   advisory: string;
@@ -93,64 +78,67 @@ export function evaluateVitalsSafety(vitals: PatientVitals): {
       advisory: "Vitals outside safe geriatric range. Immediate caretaker review or SOS consult advised.",
     };
   }
-
   if (systolic >= 135 || diastolic >= 85 || glucose >= 130 || hr >= 95) {
     return {
       status: "ELEVATED",
       advisory: "Slightly elevated readings detected. Ensure morning antihypertensive/diabetic doses are taken on time.",
     };
   }
-
   return {
     status: "NORMAL",
     advisory: "All vital signs are within healthy geriatric target ranges.",
   };
 }
 
-/**
- * Deterministic clinical drug-interaction analyzer used by API and unit tests.
- */
-export function analyzeDrugInteractions(medications: Medication[], question = ""): string {
+export function analyzeDrugInteractions(
+  medications: Medication[],
+  question = "",
+  context?: { patientAge?: number; role?: string; vitals?: PatientVitals }
+): string {
   const names = medications.map((m) => m.name.toLowerCase());
   const notes: string[] = [];
+  const role = context?.role || "Family Member";
+  const age = context?.patientAge || 72;
 
-  const hasStatin = names.some((n) => n.includes("statin") || n.includes("atorvastatin") || n.includes("rosuvastatin"));
-  const hasAmlodipine = names.some((n) => n.includes("amlodipine") || n.includes("cilnidipine"));
-  const hasMetformin = names.some((n) => n.includes("metformin") || n.includes("glimepiride"));
-  const hasBloodThinner = names.some((n) => n.includes("aspirin") || n.includes("warfarin") || n.includes("clopidogrel"));
+  if (context?.vitals) {
+    const vitalsCheck = evaluateVitalsSafety(context.vitals);
+    if (vitalsCheck.status !== "NORMAL") {
+      notes.push(`• **Context-Aware Vitals Alert (${vitalsCheck.status}):** ${vitalsCheck.advisory}`);
+    }
+  }
 
-  if (hasStatin && hasAmlodipine) {
+  const missedList = medications.filter((m) => m.status === "Missed");
+  if (missedList.length > 0) {
     notes.push(
-      "• **Food & Enzyme Warning:** Avoid grapefruit juice while taking Atorvastatin and Amlodipine, as CYP3A4 inhibition increases plasma drug concentration."
+      `• **Missed Dose Escalation (${role} View):** ${missedList.map((m) => m.name).join(", ")} marked missed. Do not double the next dose.`
     );
   }
-  if (hasMetformin) {
+
+  if (names.some((n) => n.includes("statin")) && names.some((n) => n.includes("amlodipine"))) {
     notes.push(
-      "• **GI & Glycemic Safety:** Take Metformin immediately after meals to minimize gastrointestinal discomfort and monitor fasting glucose."
+      "• **Food & Enzyme Warning:** Avoid grapefruit juice while taking Atorvastatin and Amlodipine due to CYP3A4 interaction."
     );
   }
-  if (hasBloodThinner) {
+  if (names.some((n) => n.includes("metformin"))) {
     notes.push(
-      "• **Bleeding Risk Precaution:** Avoid over-the-counter NSAIDs (like Ibuprofen) alongside antiplatelet/anticoagulant therapy without cardiologist approval."
+      "• **GI & Glycemic Safety:** Take Metformin immediately after meals and monitor fasting blood glucose."
     );
   }
 
   const lowStock = medications.filter((m) => m.pillsLeft <= 5);
   if (lowStock.length > 0) {
     notes.push(
-      `• **Low Inventory Alert:** ${lowStock.map((m) => `${m.name} (${m.pillsLeft} left)`).join(", ")} — trigger Pharmacy Auto-Refill below.`
+      `• **Low Inventory Alert:** ${lowStock.map((m) => `${m.name} (${m.pillsLeft} left)`).join(", ")} — trigger Pharmacy Auto-Refill.`
     );
   }
 
   if (question.trim()) {
     notes.push(
-      `• **Clinical Guidance (${question.trim()}):** For geriatric patients (Age 65+), never double up on a missed dose; if within 2 hours of the scheduled window, take with water after food, otherwise skip and log for the Care Circle.`
+      `• **Clinical Guidance (${question.trim()} • Age ${age}):** Never double up on a missed dose; take within 2 hours after food or log for the Care Circle.`
     );
   }
 
-  if (notes.length === 0) {
-    notes.push("• **Safe Regimen:** No severe direct contraindications detected in the active schedule.");
-  }
-
-  return notes.join("\n");
+  return notes.length > 0
+    ? notes.join("\n")
+    : "• **Safe Regimen:** No severe direct contraindications detected in the active schedule.";
 }
